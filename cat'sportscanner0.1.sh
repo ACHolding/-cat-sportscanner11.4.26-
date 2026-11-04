@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# cat's port scanner 0.1.2 — repaired Bash edition
+# cat's port scanner 0.1.3 — repaired Bash edition
 # (c) Kondo Solutions 1999–2026
 #
 # TCP connect scanning using Bash /dev/tcp. Scan systems you own or are authorized to test.
 # Requires: bash >= 4.3, GNU coreutils (timeout, or gtimeout on macOS), sort, tr, head, mktemp.
 set -uo pipefail
 
-VERSION=0.1.2
+VERSION=0.1.3
 HOST_SPEC='' PORT_SPEC='' TIMEOUT=2 MAXJOBS=64
 GRAB_BANNER=0 OUTFILE='' PROBE='' SHOW_CLOSED=0 VERBOSE=0
 PORT_GIVEN=0
@@ -20,7 +20,7 @@ usage() { cat <<HELP
 Usage: $(basename -- "$0") -h HOST [-p PORTS] [options]
 
   -h HOST     hostname, IPv4, IPv4 last-octet range, or IPv4 CIDR /24–/32
-  -p PORTS    comma-separated ports and ranges (default: common ports)
+  -p PORTS    ports and ranges, comma or space separated (default: common ports)
   -t SEC      connect/banner timeout, positive integer (default: 2)
   -c N        maximum parallel connections, 1–512 (default: 64)
   -b          attempt to read banners
@@ -65,7 +65,8 @@ expand_hosts() {
     prefix=${ip%.*}; last=$((10#${ip##*.}))
     block=$((1 << (32-mask))); start=$((last / block * block))
     for ((i=start;i<start+block;i++)); do printf '%s.%d\n' "$prefix" "$i"; done
-  elif [[ $spec =~ ^[0-9.]+$ ]]; then
+  elif [[ $spec == *.* && $spec =~ ^[0-9.]+$ ]]; then
+    # Dotted and all-numeric: must be a real quad. Bare digits fall through to hostname.
     valid_ipv4 "$spec" || die "invalid IPv4 address: $spec"
     printf '%s\n' "$spec"
   elif [[ $spec =~ ^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?$ ]]; then
@@ -78,6 +79,11 @@ expand_hosts() {
 
 expand_ports() {
   local spec=$1 part lo hi p; local -a parts
+  [[ -n $spec ]] || die 'empty port specification'
+  # Spaces and tabs are separators too, not noise: "22 80" must not become 2280.
+  spec=${spec//[[:space:]]/,}
+  while [[ $spec == *,,* ]]; do spec=${spec//,,/,}; done
+  spec=${spec#,}; spec=${spec%,}
   [[ -n $spec ]] || die 'empty port specification'
   IFS=, read -r -a parts <<< "$spec"
   for part in "${parts[@]}"; do
